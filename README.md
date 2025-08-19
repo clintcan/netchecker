@@ -1,11 +1,13 @@
 # NetChecker
 
-A network security monitoring tool that analyzes running processes and their network connections, with optional VirusTotal integration for malware detection.
+A network security monitoring tool that analyzes running processes and their network connections, with optional VirusTotal integration for malware detection and IP reputation checking.
 
 ## Features
 
 - **Process Network Monitoring**: Identify processes with listening ports and established network connections
 - **VirusTotal Integration**: Optional file hash checking against VirusTotal's malware database
+- **IP Reputation Checking**: Check remote IP addresses against VirusTotal's IP reputation database
+- **Intelligent Caching**: Cache VirusTotal results for files and IPs to minimize API calls and improve performance
 - **Security Analysis**: Detect potentially malicious processes making network connections
 - **Flexible Output**: View listening processes, established connections, or both
 
@@ -77,6 +79,7 @@ Listening Processes:
     VirusTotal: 2/67 detections
     ⚠️  ALERT: 2 engines detected this file as malicious!
     Report: https://www.virustotal.com/...
+    IP Reputation: Clean (0 detections)
 ```
 
 ### Established Connections
@@ -89,12 +92,15 @@ Established Network Connections and Associated Processes:
     Status: CONN_ESTABLISHED
     File Hash: def456...
     VirusTotal: 0/67 detections
+    IP Reputation: Clean (0 detections)
 ```
 
 ## Security Features
 
 - **Malware Detection**: When VirusTotal integration is enabled, file hashes are checked against a database of known malware
-- **Rate Limiting**: Automatic rate limiting when querying VirusTotal API (0.25 second delays)
+- **IP Reputation Analysis**: Check remote IP addresses for malicious activity (skips private/local IPs)
+- **Intelligent Caching**: Results are cached in memory to avoid redundant API calls during the same session
+- **Rate Limiting**: Automatic rate limiting when querying VirusTotal API (0.25 second delays, only for new queries)
 - **Process Monitoring**: Identifies all processes making network connections
 - **Suspicious Activity Detection**: Alerts when processes with positive malware detections are found
 
@@ -102,15 +108,17 @@ Established Network Connections and Associated Processes:
 
 - Python 3.6+
 - psutil 7.0.0+
-- requests (for VirusTotal integration)
+- requests 2.31.0+ (for VirusTotal integration)
 - Internet connection (for VirusTotal features)
 
 ## Privacy and Security Notes
 
 - This tool requires elevated privileges on some systems to access process information
-- VirusTotal integration sends file hashes (not file contents) to VirusTotal's servers
+- VirusTotal integration sends file hashes and IP addresses (not file contents) to VirusTotal's servers
 - File hashes are calculated using SHA256
-- No sensitive data is transmitted beyond file hashes when using VirusTotal
+- Only public IP addresses are checked for reputation (private/local IPs are skipped)
+- Results are cached in memory during execution to minimize API calls
+- No sensitive data is transmitted beyond file hashes and public IP addresses when using VirusTotal
 
 ## Limitations
 
@@ -118,6 +126,7 @@ Established Network Connections and Associated Processes:
 - VirusTotal API has rate limits (500 requests per minute for free accounts)
 - Requires network connectivity for VirusTotal features
 - Process information may be limited on some operating systems
+- Cache is only maintained during a single execution session (not persistent across runs)
 
 ## Use Cases
 
