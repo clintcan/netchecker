@@ -68,6 +68,93 @@ def is_private_ip(ip_str):
     except ValueError:
         return True
 
+def is_suspicious_location(file_path):
+    """Check if executable is in a suspicious location commonly used by malware."""
+    if not file_path:
+        return False, "No executable path"
+    
+    file_path = file_path.lower().replace('\\', '/')
+    
+    # Suspicious directories commonly used by malware
+    suspicious_paths = [
+        # Temp directories
+        '/temp/',
+        '/tmp/',
+        '/windows/temp/',
+        '/users/public/',
+        '/programdata/',
+        
+        # User-writable locations that shouldn't contain executables
+        '/appdata/local/temp/',
+        '/appdata/roaming/',
+        '/downloads/',
+        '/desktop/',
+        '/documents/',
+        '/music/',
+        '/pictures/',
+        '/videos/',
+        
+        # System directories that malware sometimes abuses
+        '/windows/system32/tasks/',
+        '/windows/syswow64/tasks/',
+        '/recycler/',
+        '/recycle.bin/',
+        
+        # Hidden or unusual locations
+        '/$recycle.bin/',
+        '/system volume information/',
+        
+        # Browser cache/temp locations
+        '/cache/',
+        '/temporary internet files/',
+        
+        # Common malware hiding spots
+        '/intel/',
+        '/nvidia/',
+        '/microsoft shared/',
+    ]
+    
+    # Check for suspicious paths
+    for suspicious_path in suspicious_paths:
+        if suspicious_path in file_path:
+            return True, f"Located in suspicious directory: {suspicious_path.strip('/')}"
+    
+    # Check for executables with suspicious names or patterns
+    filename = file_path.split('/')[-1] if '/' in file_path else file_path
+    
+    # Suspicious filename patterns
+    suspicious_patterns = [
+        # Random character patterns
+        len(filename) > 20 and filename.replace('.exe', '').replace('.', '').isalnum() and 
+        sum(c.isdigit() for c in filename) > len(filename) * 0.3,  # >30% digits
+        
+        # Mimicking system files but in wrong location
+        filename in ['svchost.exe', 'explorer.exe', 'winlogon.exe', 'csrss.exe'] and 
+        '/windows/system32/' not in file_path and '/windows/syswow64/' not in file_path,
+        
+        # Double extensions
+        '.exe.exe' in filename or '.scr.exe' in filename or '.pdf.exe' in filename,
+        
+        # Suspicious extensions masquerading as documents
+        filename.endswith(('.pdf.exe', '.doc.exe', '.jpg.exe', '.txt.exe')),
+    ]
+    
+    for i, pattern in enumerate(suspicious_patterns):
+        if pattern:
+            pattern_descriptions = [
+                "Filename has suspicious random character pattern",
+                "System process name in non-system location", 
+                "Double file extension detected",
+                "Document extension with executable"
+            ]
+            return True, pattern_descriptions[i]
+    
+    # Check if running from removable media (basic check)
+    if file_path.startswith(('a:/', 'b:/', 'e:/', 'f:/', 'g:/', 'h:/', 'i:/', 'j:/', 'k:/')):
+        return True, "Running from potential removable media"
+    
+    return False, "Location appears normal"
+
 def check_virustotal_ip(ip_address, api_key):
     """Check IP address against VirusTotal API."""
     if not ip_address or not api_key or is_private_ip(ip_address):
@@ -134,6 +221,12 @@ def get_listening_processes(vt_api_key=None, check_vt=False):
                         'type': conn.type,
                     }
                     
+                    # Check for suspicious executable location
+                    if proc.info['exe']:
+                        is_suspicious, reason = is_suspicious_location(proc.info['exe'])
+                        process_data['suspicious_location'] = is_suspicious
+                        process_data['location_reason'] = reason
+                    
                     if check_vt and vt_api_key:
                         if proc.info['exe']:
                             file_hash = calculate_file_hash(proc.info['exe'])
@@ -178,6 +271,12 @@ def get_established_connections_with_processes(vt_api_key=None, check_vt=False):
                             'remote_address': conn.raddr,
                             'status': conn.status
                         }
+                        
+                        # Check for suspicious executable location
+                        if proc.info['exe']:
+                            is_suspicious, reason = is_suspicious_location(proc.info['exe'])
+                            connection_data['suspicious_location'] = is_suspicious
+                            connection_data['location_reason'] = reason
                         
                         if check_vt and vt_api_key:
                             if proc.info['exe']:
@@ -238,6 +337,12 @@ if __name__ == "__main__":
                 print(f"    Listening on: {p['local_address']}:{p['local_port']}")
                 print(f"    (Family: {p['family']}, Type: {p['type']})")
                 
+                # Display suspicious location warning
+                if p.get('suspicious_location'):
+                    print(f"    *** SUSPICIOUS LOCATION: {p['location_reason']}")
+                elif 'location_reason' in p:
+                    print(f"    Location: {p['location_reason']}")
+                
                 if 'virustotal' in p and p['virustotal']:
                     vt = p['virustotal']
                     print(f"    VirusTotal: {vt['positives']}/{vt['total']} detections")
@@ -276,6 +381,12 @@ if __name__ == "__main__":
                 print(f"    Local: {conn_data['local_address']}")
                 print(f"    Remote: {conn_data['remote_address']}")
                 print(f"    Status: {conn_data['status']}")
+                
+                # Display suspicious location warning
+                if conn_data.get('suspicious_location'):
+                    print(f"    *** SUSPICIOUS LOCATION: {conn_data['location_reason']}")
+                elif 'location_reason' in conn_data:
+                    print(f"    Location: {conn_data['location_reason']}")
                 
                 if 'virustotal' in conn_data and conn_data['virustotal']:
                     vt = conn_data['virustotal']

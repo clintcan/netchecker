@@ -7,6 +7,7 @@ A network security monitoring tool that analyzes running processes and their net
 - **Process Network Monitoring**: Identify processes with listening ports and established network connections
 - **VirusTotal Integration**: Optional file hash checking against VirusTotal's malware database
 - **IP Reputation Checking**: Check remote IP addresses against VirusTotal's IP reputation database
+- **Suspicious Location Detection**: Automatically flag executables running from suspicious directories commonly used by malware
 - **Intelligent Caching**: Cache VirusTotal results for files and IPs to minimize API calls and improve performance
 - **Security Analysis**: Detect potentially malicious processes making network connections
 - **Flexible Output**: View listening processes, established connections, or both
@@ -66,6 +67,25 @@ python netchecker.py --virustotal
 | `--virustotal` | `-vt` | Enable VirusTotal hash checking |
 | `--api-key` | `-k` | VirusTotal API key |
 
+### Suspicious Location Detection
+
+NetChecker automatically analyzes executable paths for potential malware indicators. This feature runs by default and doesn't require any additional configuration. The tool will flag executables that are:
+
+- **Located in temporary directories**: Files in temp folders are often used by malware
+- **Running from user folders**: Executables in Downloads, Desktop, Documents folders
+- **System process impersonation**: System processes (like `svchost.exe`) running from non-system locations
+- **Using suspicious filename patterns**: Double extensions, random character strings
+- **Running from removable media**: USB drives and other external storage
+
+Examples of suspicious locations that trigger alerts:
+```
+C:\Temp\malware.exe                    -> Temp directory
+C:\Users\Public\backdoor.exe           -> Public user directory  
+C:\Downloads\virus.pdf.exe             -> Double extension
+C:\Desktop\svchost.exe                 -> System process in wrong location
+C:\ProgramData\random123456.exe        -> Suspicious random filename
+```
+
 ## Output Format
 
 ### Listening Processes
@@ -75,11 +95,23 @@ Listening Processes:
     Executable: /path/to/example.exe
     Listening on: 127.0.0.1:8080
     (Family: AddressFamily.AF_INET, Type: SocketKind.SOCK_STREAM)
+    Location: Location appears normal
     File Hash: abc123...
     VirusTotal: 2/67 detections
     ⚠️  ALERT: 2 engines detected this file as malicious!
     Report: https://www.virustotal.com/...
     IP Reputation: Clean (0 detections)
+```
+
+### Suspicious Location Detection
+```
+Listening Processes:
+  PID: 5678, Name: malware.exe
+    Executable: C:\Temp\malware.exe
+    Listening on: 0.0.0.0:1337
+    (Family: AddressFamily.AF_INET, Type: SocketKind.SOCK_STREAM)
+    *** SUSPICIOUS LOCATION: Located in suspicious directory: temp
+    VirusTotal: No results found
 ```
 
 ### Established Connections
@@ -90,6 +122,7 @@ Established Network Connections and Associated Processes:
     Local: 192.168.1.100:54321
     Remote: 93.184.216.34:443
     Status: CONN_ESTABLISHED
+    Location: Location appears normal
     File Hash: def456...
     VirusTotal: 0/67 detections
     IP Reputation: Clean (0 detections)
@@ -99,10 +132,17 @@ Established Network Connections and Associated Processes:
 
 - **Malware Detection**: When VirusTotal integration is enabled, file hashes are checked against a database of known malware
 - **IP Reputation Analysis**: Check remote IP addresses for malicious activity (skips private/local IPs)
+- **Suspicious Location Detection**: Automatically flags executables running from suspicious directories including:
+  - Temp directories (`/temp/`, `/windows/temp/`)
+  - User-writable locations (`/downloads/`, `/desktop/`, `/documents/`)
+  - System abuse locations (`/programdata/`, `/users/public/`)
+  - Double file extensions (`.pdf.exe`, `.doc.exe`)
+  - System process names in wrong locations
+  - Potential removable media locations
 - **Intelligent Caching**: Results are cached in memory to avoid redundant API calls during the same session
 - **Rate Limiting**: Automatic rate limiting when querying VirusTotal API (0.25 second delays, only for new queries)
 - **Process Monitoring**: Identifies all processes making network connections
-- **Suspicious Activity Detection**: Alerts when processes with positive malware detections are found
+- **Suspicious Activity Detection**: Alerts when processes with positive malware detections or suspicious locations are found
 
 ## Requirements
 
