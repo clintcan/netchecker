@@ -6,6 +6,10 @@ import time
 import os
 import ipaddress
 
+# Global caches for VirusTotal results to avoid duplicate API calls
+_vt_hash_cache = {}
+_vt_ip_cache = {}
+
 def calculate_file_hash(file_path):
     """Calculate SHA256 hash of a file."""
     if not file_path or not os.path.exists(file_path):
@@ -25,6 +29,10 @@ def check_virustotal(file_hash, api_key):
     if not file_hash or not api_key:
         return None
     
+    # Check cache first
+    if file_hash in _vt_hash_cache:
+        return _vt_hash_cache[file_hash]
+    
     url = f"https://www.virustotal.com/vtapi/v2/file/report"
     params = {
         'apikey': api_key,
@@ -36,14 +44,20 @@ def check_virustotal(file_hash, api_key):
         if response.status_code == 200:
             data = response.json()
             if data.get('response_code') == 1:
-                return {
+                result = {
                     'scan_date': data.get('scan_date'),
                     'positives': data.get('positives', 0),
                     'total': data.get('total', 0),
                     'permalink': data.get('permalink')
                 }
+                # Cache the result
+                _vt_hash_cache[file_hash] = result
+                return result
+        # Cache negative results too
+        _vt_hash_cache[file_hash] = None
         return None
     except (requests.RequestException, ValueError):
+        # Don't cache errors
         return None
 
 def is_private_ip(ip_str):
@@ -59,6 +73,10 @@ def check_virustotal_ip(ip_address, api_key):
     if not ip_address or not api_key or is_private_ip(ip_address):
         return None
     
+    # Check cache first
+    if ip_address in _vt_ip_cache:
+        return _vt_ip_cache[ip_address]
+    
     url = f"https://www.virustotal.com/vtapi/v2/ip-address/report"
     params = {
         'apikey': api_key,
@@ -70,7 +88,7 @@ def check_virustotal_ip(ip_address, api_key):
         if response.status_code == 200:
             data = response.json()
             if data.get('response_code') == 1:
-                return {
+                result = {
                     'detected_urls': data.get('detected_urls', []),
                     'detected_communicating_samples': data.get('detected_communicating_samples', []),
                     'detected_downloaded_samples': data.get('detected_downloaded_samples', []),
@@ -79,8 +97,14 @@ def check_virustotal_ip(ip_address, api_key):
                     'as_owner': data.get('as_owner'),
                     'asn': data.get('asn')
                 }
+                # Cache the result
+                _vt_ip_cache[ip_address] = result
+                return result
+        # Cache negative results too
+        _vt_ip_cache[ip_address] = None
         return None
     except (requests.RequestException, ValueError):
+        # Don't cache errors
         return None
 
 def check_internet():
@@ -114,16 +138,23 @@ def get_listening_processes(vt_api_key=None, check_vt=False):
                         if proc.info['exe']:
                             file_hash = calculate_file_hash(proc.info['exe'])
                             if file_hash:
+                                # Check if this hash was already cached to avoid unnecessary API calls
+                                was_cached = file_hash in _vt_hash_cache
                                 vt_result = check_virustotal(file_hash, vt_api_key)
                                 process_data['file_hash'] = file_hash
                                 process_data['virustotal'] = vt_result
-                                if vt_result:
+                                # Only rate limit if we made an actual API call
+                                if vt_result and not was_cached:
                                     time.sleep(0.25)  # Rate limiting
                         
+                        # Check if this IP was already cached to avoid unnecessary API calls
+                        was_ip_cached = conn.laddr.ip in _vt_ip_cache
                         ip_vt_result = check_virustotal_ip(conn.laddr.ip, vt_api_key)
                         if ip_vt_result:
                             process_data['ip_virustotal'] = ip_vt_result
-                            time.sleep(0.25)  # Rate limiting
+                            # Only rate limit if we made an actual API call
+                            if not was_ip_cached:
+                                time.sleep(0.25)  # Rate limiting
                     
                     listening_processes.append(process_data)
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
@@ -152,17 +183,24 @@ def get_established_connections_with_processes(vt_api_key=None, check_vt=False):
                             if proc.info['exe']:
                                 file_hash = calculate_file_hash(proc.info['exe'])
                                 if file_hash:
+                                    # Check if this hash was already cached to avoid unnecessary API calls
+                                    was_cached = file_hash in _vt_hash_cache
                                     vt_result = check_virustotal(file_hash, vt_api_key)
                                     connection_data['file_hash'] = file_hash
                                     connection_data['virustotal'] = vt_result
-                                    if vt_result:
+                                    # Only rate limit if we made an actual API call
+                                    if vt_result and not was_cached:
                                         time.sleep(0.25)  # Rate limiting
                             
                             if conn.raddr:
+                                # Check if this IP was already cached to avoid unnecessary API calls
+                                was_ip_cached = conn.raddr.ip in _vt_ip_cache
                                 ip_vt_result = check_virustotal_ip(conn.raddr.ip, vt_api_key)
                                 if ip_vt_result:
                                     connection_data['ip_virustotal'] = ip_vt_result
-                                    time.sleep(0.25)  # Rate limiting
+                                    # Only rate limit if we made an actual API call
+                                    if not was_ip_cached:
+                                        time.sleep(0.25)  # Rate limiting
                         
                         connections_info.append(connection_data)
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
